@@ -1,0 +1,132 @@
+---
+title: "PML Final Project"
+author: "Policarpio Soberanis"
+date: "March 26, 2016"
+output: html_document
+---
+
+```{r package_options, include = FALSE}
+knitr::opts_knit$set(progress = TRUE, verbose = TRUE)
+```
+
+```{r, results = "hide", message = FALSE}
+library(ElemStatLearn)
+library(caret)
+```
+###Synopsis: 
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement – a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: http://groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset).
+
+####Data
+
+The training data for this project are available here:
+
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
+
+The test data are available here:
+
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
+
+
+
+###Data Processing:
+
+```{r}
+pml.train <- read.csv("pml-training.csv")
+pml.test <- read.csv("pml-testing.csv")
+set.seed(137)
+dim(pml.train)
+dim(pml.test)
+```
+
+
+The first thing we do is to partition the training data set so that we can have some testing data to help validate our model before we try it on the test data provided for the project. This will allow us to do an out-of-sample testing before we apply the model to the provided test data. We use the convention of a 60-40 split with 60% of the data being used as the training data and the other 40% of the data being used to test the data.
+
+```{r}
+inTrain<- createDataPartition(y=pml.train$classe,p=0.6,list=FALSE) #partition the data
+locTrain<-pml.train[inTrain,] #training data
+locTest<-pml.train[-inTrain,] #cross validation testing data
+dim(locTrain)
+dim(locTest)
+```
+
+
+Next we do some data cleaning and transformation. We remove the variables that have variance close to zero and we remove the variables that have more than 70% of the data being NA's. This will allow us to have a fairly clean data set that we can then use to train our model.
+
+```{r}
+#Near zero values removed
+locTrainNZV <- nearZeroVar(locTrain, saveMetrics=TRUE)
+locNZVvar<-!locTrainNZV$nzv
+locTrain<-locTrain[locNZVvar]
+
+#Remove large number of NA's
+locTrain<-locTrain[c(-1)]
+myTrain <- locTrain 
+for(i in 1:length(locTrain)) { #for every column in the training dataset
+        if( sum( is.na( locTrain[, i] ) ) /nrow(locTrain) >= .7 ) { #if the number of NAs > 70% of total observations
+                for(j in 1:length(myTrain)) {
+                        if( length( grep(names(locTrain[i]), names(myTrain)[j]) ) ==1)  { #if the columns are the same:
+                                myTrain <- myTrain[ , -j] #Remove that column
+                        }   
+                } 
+        }
+}
+
+```
+
+We now do the same data transformations to the two testing sets to ensure that we can use the data with the predict function and get reasonable results.
+
+```{r}
+cleanDataNames1<-colnames(myTrain)
+cleanDataNames2<-colnames(myTrain[,-58])
+myTest<-locTest[cleanDataNames1]
+pml.test<-pml.test[cleanDataNames2]
+dim(myTrain); dim(myTest)
+```
+
+
+In order for the training data supplied to work we need to make some minor modifications to ensure that it meets the 
+requirements 
+
+```{r}
+for (i in 1:length(pml.test) ) {
+        for(j in 1:length(myTrain)) {
+                if( length( grep(names(myTrain[i]), names(pml.test)[j]) ) ==1)  {
+                        class(pml.test[j]) <- class(myTrain[i])
+                }      
+        }      
+}
+pml.test <- rbind(myTrain[2, -58] , pml.test) 
+pml.test <- pml.test[-1,]
+dim(pml.test)
+```
+
+Now when we examine the data we see that it meets the criteria for us to test our model once we create it.
+
+###Model Fitting
+
+Given that we are looking to classify the data into multiple classes we first try a random forest to see how well this model will fit the data. 
+
+```{r}
+pml_rf<-train(classe~., data = myTrain, method='rf')
+plot(pml_rf)
+```
+
+From the plot of the model we see that around 40 randomly selected predictors we were able to achieve the best accurracy. We use the model to predict what our test data results will be and then we look at the accuracy of the prediction.
+
+```{r}
+test1<-predict(pml_rf,myTest)
+confusionMatrix(test1,myTest$classe)$overall
+```
+
+From the confusion matrix we see that our model has an accuracy of 99.9% with a 95% confidence interval. Given that level of accuracy I chose not to puruse another model. With such a high level of cross validation accuracy and taking into account the time it takes the ElemStatLearn package to churn through the learning process and produce the model, I figured it was best to try this one before pursuing alternatives.
+
+Finally, we use the model to predict the classes for the test data that will be submitted for the project quiz.
+```{r}
+pml_pred<-predict(pml_rf,pml.test)
+pml_pred
+```
+
+###Conclusion
+
+The Random Forest method that was used allowed for a model that was 99.9% accurate based on out-of-sample testing. Using this model we were able to predict the classes for the quiz with 100% accurracy.
